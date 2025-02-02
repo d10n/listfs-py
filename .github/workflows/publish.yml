@@ -1,0 +1,32 @@
+name: Publish
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  pypi-publish:
+    name: Upload release to PyPI
+    runs-on: ubuntu-latest
+    # Specifying a GitHub environment is optional, but strongly encouraged
+    environment: pypi
+    permissions:
+      # IMPORTANT: this permission is mandatory for Trusted Publishing
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: 'pyproject.toml'
+
+      #- name: Install test dependencies
+      #  run: sudo apt-get update && sudo apt-get install -y fuse3 pkg-config libfuse3-dev python3-dev
+
+      - uses: astral-sh/setup-uv@v5
+      #- run: uv sync
+      - run: uv build
+      - run: uv publish
+
+      ## Run uv publish instead
+      #- name: Publish package distributions to PyPI
+      #  uses: pypa/gh-action-pypi-publish@release/v1
