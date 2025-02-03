@@ -534,7 +534,7 @@ def read_records(listing):
                     mode=fileperm_to_mode(perms) | filetype_to_mode[typ],
                     src_user=sys.intern(user),
                     src_group=sys.intern(group),
-                    bytes=int(size) if size else 0,
+                    bytes=int(size),
                     mtime_ns=mtime_ns,
                     path=path,
                 )
@@ -547,11 +547,14 @@ def read_records(listing):
                 mtime_ns = int(float(ts) * 1e9)
                 typ = "d" if path.endswith("/") else "f"
                 mode = (0o755 if typ == "/" else 0o644) | filetype_to_mode[typ]
+                size = int(size)
+                block_kib = math.ceil(size / 1024)
                 record = Record(
                     mtime_ns=mtime_ns,
                     typ=typ,
                     mode=mode,
-                    bytes=int(size) if size else 0,
+                    bytes=size,
+                    block_kib=block_kib,
                     path=path,
                 )
                 yield record
