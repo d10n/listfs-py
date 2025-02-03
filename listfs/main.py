@@ -271,7 +271,7 @@ def parse_ls_date(date_str: str, assumed_year: int):
     Returns a datetime object.
     """
     try:
-        if ":" in date_str:
+        if ":" not in date_str:
             # Try parsing with the format that includes a year
             parsed_date = datetime.strptime(date_str, "%b %d %Y")
             return parsed_date
