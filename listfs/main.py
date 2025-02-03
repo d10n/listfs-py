@@ -47,11 +47,10 @@ import sys
 import textwrap
 from collections import defaultdict, OrderedDict
 from contextlib import contextmanager
-from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from itertools import islice
 from time import perf_counter
-from typing import Sequence, Dict, List
+from typing import Sequence, Dict, List, Tuple
 from weakref import ref, WeakValueDictionary
 
 import pyfuse3
@@ -579,51 +578,118 @@ def read_records(listing):
             yield record
 
 
-@dataclass
 class Record:  # Basically the same as Meta but with path and no src_listing
     """A loaded line from a listing, before being processed into a node"""
-    mode: int
-    mtime_ns: int
-    path: str
-    bytes: int = 0
-    src_inode: int | None = None
-    block_kib: int = 0
-    target: str | None = None
-    src_user: str | None = None
-    src_group: str | None = None
-    typ: str | None = None
-    empty: bool = False
+    __slots__ = (
+        "mode",
+        "mtime_ns",
+        "path",
+        "bytes",
+        "src_inode",
+        "block_kib",
+        "target",
+        "src_user",
+        "src_group",
+        "typ",
+        "empty",
+    )
+
+    def __init__(
+            self,
+            mode: int,
+            mtime_ns: int,
+            path: str,
+            bytes: int = 0,
+            src_inode: int | None = None,
+            block_kib: int = 0,
+            target: str | None = None,
+            src_user: str | None = None,
+            src_group: str | None = None,
+            typ: str | None = None,
+            empty: bool = False,
+    ):
+        self.mode = mode
+        self.mtime_ns = mtime_ns
+        self.path = path
+        self.bytes = bytes
+        self.src_inode = src_inode
+        self.block_kib = block_kib
+        self.target = target
+        self.src_user = src_user
+        self.src_group = src_group
+        self.typ = typ
+        self.empty = empty
 
 
-@dataclass
 class Meta:
-    src_listing: str
-    mode: int
-    mtime_ns: int
-    bytes: int = 0
-    src_inode: int | None = None
-    block_kib: int = 0
-    target: str | None = None
-    src_user: str | None = None
-    src_group: str | None = None
+    __slots__ = (
+        "src_listing",
+        "mode",
+        "mtime_ns",
+        "bytes",
+        "src_inode",
+        "block_kib",
+        "target",
+        "src_user",
+        "src_group",
+    )
+
+    def __init__(
+            self,
+            src_listing: str,
+            mode: int,
+            mtime_ns: int,
+            bytes: int = 0,
+            src_inode: int | None = None,
+            block_kib: int = 0,
+            target: str | None = None,
+            src_user: str | None = None,
+            src_group: str | None = None,
+    ):
+        self.src_listing = src_listing
+        self.mode = mode
+        self.mtime_ns = mtime_ns
+        self.bytes = bytes
+        self.src_inode = src_inode
+        self.block_kib = block_kib
+        self.target = target
+        self.src_user = src_user
+        self.src_group = src_group
+
+    def __iter__(self):
+        for key in self.__slots__:
+            yield key, getattr(self, key)
 
 
-@dataclass
 class Node:
-    name: str
-    st_ino: pyfuse3.InodeT
-    meta_dirs: List[Meta] = field(default_factory=list)
-    meta_other: List[Meta] = field(default_factory=list)
-    meta_implicit: List[Meta] = field(default_factory=list)
-    meta_implicit_listings: set[str] = field(default_factory=set)
+    __slots__ = (
+        "name",
+        "st_ino",
+        "meta_dirs",
+        "meta_other",
+        "meta_implicit",
+        "meta_implicit_listings",
+        "children",
+        "__weakref__",
+    )
 
-    # children: WeakValueDictionary[str, "Node"] | None = None
-    children: Dict[str, "Node"] | None = None
-
-    # def __post_init__(self):
-    #     # if stat.S_IFMT(self.attrs.st_mode) == stat.S_IFDIR:
-    #     if stat.S_ISDIR(self.attrs.st_mode):
-    #         self.children = {}
+    def __init__(
+            self,
+            name: str,
+            st_ino: pyfuse3.InodeT,
+            meta_dirs: List[Meta] | Tuple[Meta, ...] | None = None,
+            meta_other: List[Meta] | Tuple[Meta, ...] | None = None,
+            meta_implicit: List[Meta] | Tuple[Meta, ...] | None = None,
+            meta_implicit_listings: set[str] | frozenset[str] | None = None,
+            children: Dict[str, "Node"] | None = None,
+    ):
+        self.name = name
+        self.st_ino = st_ino
+        self.meta_dirs = meta_dirs
+        self.meta_other = meta_other
+        self.meta_implicit = meta_implicit
+        self.meta_implicit_listings = meta_implicit_listings if meta_implicit_listings is not None else set()
+        self.children = children
 
 
 class ListFS(pyfuse3.Operations):
@@ -697,9 +763,12 @@ class ListFS(pyfuse3.Operations):
 
     def _get_metas(self, node: Node) -> Sequence[Meta]:
         metas = []
-        metas.extend(node.meta_dirs)
-        metas.extend(node.meta_other)
-        metas.extend(node.meta_implicit)
+        if node.meta_dirs is not None:
+            metas.extend(node.meta_dirs)
+        if node.meta_other is not None:
+            metas.extend(node.meta_other)
+        if node.meta_implicit is not None:
+            metas.extend(node.meta_implicit)
         return metas
 
     def load_listing(self, file, skip_components=0, prefix_dir=None):
@@ -791,26 +860,36 @@ class ListFS(pyfuse3.Operations):
                     if stat.S_ISDIR(record.mode):
                         # if (i + 1) % 2 == 0:
                         #     self.node_lookup["/".join(mounted_path_parts[: i + 1])] = node
-                        node.meta_dirs.append(meta)
-                        # node.meta_dirs.sort(key=lambda x: x.mtime_ns, reverse=True)
-                        if not node.children:
+                        if node.meta_dirs is None:
+                            node.meta_dirs = [meta]
+                        else:
+                            node.meta_dirs.append(meta)
+                            # node.meta_dirs.sort(key=lambda x: x.mtime_ns, reverse=True)
+                        if node.children is None:
                             # node.children = WeakValueDictionary()
                             node.children = {}
                     else:
-                        node.meta_other.append(meta)
-                        # node.meta_other.sort(key=lambda x: x.mtime_ns, reverse=True)
+                        if node.meta_other is None:
+                            node.meta_other = [meta]
+                        else:
+                            node.meta_other.append(meta)
+                            # node.meta_other.sort(key=lambda x: x.mtime_ns, reverse=True)
                 else:
                     # Fill in branch
                     # if (i + 1) % 2 == 0:
                     #     self.node_lookup["/".join(mounted_path_parts[: i + 1])] = node
                     if file not in node.meta_implicit_listings:
                         node.meta_implicit_listings.add(file)
-                        node.meta_implicit.append(Meta(
+                        meta = Meta(
                             src_listing=file,
                             mode=stat.S_IFDIR | 0o755,
                             mtime_ns=record.mtime_ns,
-                        ))
-                        # node.meta_implicit.sort(key=lambda x: x.mtime_ns, reverse=True)
+                        )
+                        if node.meta_implicit is None:
+                            node.meta_implicit = [meta]
+                        else:
+                            node.meta_implicit.append(meta)
+                            # node.meta_implicit.sort(key=lambda x: x.mtime_ns, reverse=True)
                     if not node.children:
                         # node.children = WeakValueDictionary()
                         node.children = {}
@@ -846,7 +925,10 @@ class ListFS(pyfuse3.Operations):
         elif name == b"..":
             inode = self.parent[parent_inode]
         else:
-            node = self.nodes[parent_inode].children.get(os.fsdecode(name))
+            children = self.nodes[parent_inode].children
+            if children is None:
+                raise pyfuse3.FUSEError(errno.ENOENT)
+            node = children.get(os.fsdecode(name))
             if not node:
                 raise pyfuse3.FUSEError(errno.ENOENT)
             inode = node.st_ino
@@ -906,7 +988,7 @@ class ListFS(pyfuse3.Operations):
         if inode not in self.nodes:
             raise pyfuse3.FUSEError(errno.ENOENT)
         node = self.nodes[inode]
-        if not node.meta_other:
+        if node.meta_other is None or len(node.meta_other) == 0:
             raise pyfuse3.FUSEError(errno.EINVAL)
         meta = node.meta_other[0]
         if meta.target is None:
@@ -933,7 +1015,7 @@ class ListFS(pyfuse3.Operations):
         metas = self._get_metas(node)
         attrs = []
         for meta in metas:
-            meta_dict = asdict(meta)
+            meta_dict = dict(meta)
             meta_dict["mode"] = stat.filemode(meta.mode)
             meta_dict["mtime_ns"] = datetime.fromtimestamp(meta.mtime_ns / 1e9).isoformat()
             attrs.append(meta_dict)
@@ -1015,7 +1097,7 @@ class ListFS(pyfuse3.Operations):
             elif xattr_name == "fileperm":  # Calculated for convenience
                 value = stat.filemode(meta.mode)
             else:
-                value = asdict(meta).get(xattr_name)
+                value = dict(meta).get(xattr_name)
             if not isinstance(value, str):
                 value = json.dumps(value)
             return os.fsencode(value)
@@ -1033,7 +1115,7 @@ class ListFS(pyfuse3.Operations):
         xattrs = []
         for src_listing, metas in grouped_src_metas.items():
             for n in range(len(metas)):
-                for k, v in asdict(metas[n]).items():
+                for k, v in dict(metas[n]).items():
                     xattrs.append(pyfuse3.XAttrNameT(os.fsencode(f"user.{src_listing}_{n}::{k}")))
                 xattrs.append(os.fsencode(f"user.{src_listing}_{n}::mtime_str"))  # Calculated value for convenience
                 xattrs.append(os.fsencode(f"user.{src_listing}_{n}::fileperm"))  # Calculated value for convenience
@@ -1192,9 +1274,12 @@ def load_all_listings(listings, operations):
 
     logger.info("Preparing timestamps...")
     for node in operations.nodes.values():
-        node.meta_dirs.sort(key=lambda x: x.mtime_ns, reverse=True)
-        node.meta_implicit.sort(key=lambda x: x.mtime_ns, reverse=True)
-        node.meta_other.sort(key=lambda x: x.mtime_ns, reverse=True)
+        if node.meta_dirs is not None:
+            node.meta_dirs.sort(key=lambda x: x.mtime_ns, reverse=True)
+        if node.meta_implicit is not None:
+            node.meta_implicit.sort(key=lambda x: x.mtime_ns, reverse=True)
+        if node.meta_other is not None:
+            node.meta_other.sort(key=lambda x: x.mtime_ns, reverse=True)
 
 def count_lines(filename):
     try:
