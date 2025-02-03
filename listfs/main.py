@@ -871,7 +871,19 @@ class ListFS(pyfuse3.Operations):
         # entry.attr_timeout
         entry.st_mode = pyfuse3.ModeT(meta.mode)
         # TODO handle hardlinks on files
-        entry.st_nlink = 1 if not stat.S_ISDIR(meta.mode) else len(node.children) + 2  # 1 for self and 1 for parent
+
+        if not stat.S_ISDIR(meta.mode):
+            st_nlink = 1
+        else:
+            st_nlink = 2  # 1 for "." and 1 for ".."
+            if node.children is not None:
+                for child_name, child in node.children.items():
+                    if child.meta_dirs is not None and len(child.meta_dirs) > 0:
+                        st_nlink += 1
+                    elif child.meta_implicit is not None and len(child.meta_implicit) > 0:
+                        st_nlink += 1
+        entry.st_nlink = st_nlink
+
         entry.st_uid = os.getuid()
         entry.st_gid = os.getgid()
         # entry.st_rdev
