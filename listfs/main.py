@@ -36,7 +36,6 @@ import gc
 import gzip
 import io
 import json
-import locale
 import logging
 import lzma
 import os
