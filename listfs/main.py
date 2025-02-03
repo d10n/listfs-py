@@ -1426,6 +1426,7 @@ def main():
     gc.set_threshold(1, 1, 1)
     operations.pack_memory()
     re.purge()
+    logger.info("Garbage collecting...")
     gc.collect()
     gc.set_threshold(g0, g1, g2)
 
