@@ -70,6 +70,7 @@ Supported formats:
 * `tar -c -vv` listing
 * tabular text: mtime bytes path
 * jsonl: ["mtime", bytes, "path"]
+* jsonl: ["mtime", bytes, blocks_1k, "path"]
 * jsonl: {"t":"mtime", "m":"mode", "s":bytes, "p":"path"}
 
 ---
@@ -121,11 +122,18 @@ Example listing:
 ---
 jsonl (array) listing
 One JSON array per line.
-The array contains mtime as a string, bytes as a number, and path.
 A variant structured form of the tabular text listing.
-Example listing:
+The array may have 3 or 4 items, with the blocks field as optional:
+* mtime timestamp string, in seconds with optional decimal
+* size in bytes
+* size in 1KiB blocks (optional)
+* path (assumed to be a directory if ending with "/", otherwise assumed to be a file)
+Example listing (3 items):
 ["1732859280.5934580927", 0, "Documents/"]
 ["1732859284.2913177150", 24334, "Documents/file.txt"]
+Example listing (4 items):
+["1732859280.5934580927", 0, 0, "Documents/"]
+["1732859284.2913177150", 24334, 24, "Documents/file.txt"]
 
 ---
 jsonl (object) listing
@@ -426,21 +434,37 @@ def read_records(listing):
                 pass
 
             if isinstance(record_json, list):
-                mtime_ns = int(float(record_json[0]) * 1e9)
-                path = record_json[2]
-                typ = "d" if path.endswith("/") else "f"
-                mode = (0o755 if path.endswith("/") else 0o644) | filetype_to_mode[typ]
-                size = record_json[1]
-                record = Record(
-                    mtime_ns=mtime_ns,
-                    bytes=size,
-                    block_kib=math.ceil(size / 1024),
-                    path=path,
-                    typ=typ,
-                    mode=mode,
-                )
-                yield record
-                continue
+                if len(record_json) == 3:
+                    mtime_ns = int(float(record_json[0]) * 1e9)
+                    path = record_json[2]
+                    typ = "d" if path.endswith("/") else "f"
+                    mode = (0o755 if path.endswith("/") else 0o644) | filetype_to_mode[typ]
+                    size = record_json[1]
+                    record = Record(
+                        mtime_ns=mtime_ns,
+                        bytes=size,
+                        block_kib=math.ceil(size / 1024),
+                        path=path,
+                        typ=typ,
+                        mode=mode,
+                    )
+                    yield record
+                    continue
+                if len(record_json) == 4:
+                    mtime_ns = int(float(record_json[0]) * 1e9)
+                    path = record_json[3]
+                    typ = "d" if path.endswith("/") else "f"
+                    mode = (0o755 if path.endswith("/") else 0o644) | filetype_to_mode[typ]
+                    record = Record(
+                        mtime_ns=mtime_ns,
+                        bytes=record_json[1],
+                        block_kib=record_json[2],
+                        path=path,
+                        typ=typ,
+                        mode=mode,
+                    )
+                    yield record
+                    continue
             elif isinstance(record_json, dict):
                 mtime_ns = int(float(record_json["t"]) * 1e9)
                 typ = record_json["y"] if "y" in record_json else "d" if record_json["p"].endswith("/") else "f"

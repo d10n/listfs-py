@@ -9,6 +9,7 @@
   * `tar -c -vv`
   * tabular text: `mtime bytes path`
   * jsonl: `["mtime", bytes, "path"]`
+  * jsonl: `["mtime", bytes, blocks_1k, "path"]`
   * jsonl: `{"t":"mtime", "m":"mode", "s":bytes, "p":"path"}`
 
 ## Installation
@@ -106,9 +107,11 @@ whitespace-separated fields (each field is required):
 ```
 
 ### jsonl (array)
-`jsonl`; one JSON array per line (each field is required):
+`jsonl`; one JSON array per line.
+The array may have 3 or 4 items, with the blocks field as optional:
 * timestamp string, in seconds with optional decimal
-* size (bytes)
+* size in bytes
+* size in 1KiB blocks (optional)
 * path (assumed to be a directory if ending with "/", otherwise assumed to be a file)
 ```text
 ["1684828592.0000000000", 14316, "/Nextcloud/Templates/Elegant.odp"]
