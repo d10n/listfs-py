@@ -38,6 +38,7 @@ import io
 import json
 import logging
 import lzma
+import math
 import os
 import re
 import signal
@@ -429,9 +430,11 @@ def read_records(listing):
                 path = record_json[2]
                 typ = "d" if path.endswith("/") else "f"
                 mode = (0o755 if path.endswith("/") else 0o644) | filetype_to_mode[typ]
+                size = record_json[1]
                 record = Record(
                     mtime_ns=mtime_ns,
-                    bytes=record_json[1],
+                    bytes=size,
+                    block_kib=math.ceil(size / 1024),
                     path=path,
                     typ=typ,
                     mode=mode,
@@ -450,7 +453,7 @@ def read_records(listing):
                     typ=typ,
                     mode=mode,
                     src_inode=int(record_json["i"]) if "i" in record_json else None,
-                    block_kib=record_json.get("k", size // 1024),
+                    block_kib=record_json.get("k", math.ceil(size / 1024)),
                     target=record_json.get("l"),
                     empty=record_json.get("e", False),
                 )
@@ -487,7 +490,7 @@ def read_records(listing):
                     bytes=size,
                     path=path,
                     mode=fileperm_to_mode(perms) | filetype_to_mode[typ],
-                    block_kib=size // 1024,
+                    block_kib=math.ceil(size / 1024),
                     target=target,
                     src_user=sys.intern(user),
                     src_group=sys.intern(group),
