@@ -25,7 +25,7 @@ Options:
   --help-formats       Show supported listing format detail and exit.
   --version            Show the version and exit.
 """
-__version__ = "0.5.1"
+__version__ = "0.6.0"
 
 import atexit
 import bz2
