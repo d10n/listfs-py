@@ -11,6 +11,13 @@
   * jsonl: `["mtime", bytes, "path"]`
   * jsonl: `{"t":"mtime", "m":"mode", "s":bytes, "p":"path"}`
 
+## Installation
+
+* `uv tool install listfs`
+
+* If you get an installation error, make sure that the build dependencies are installed:
+* Fedora: `sudo dnf install python python3-devel fuse3 fuse3-devel pkg-config gcc`
+* Debian: `sudo apt install python3 python3-dev fuse3 libfuse3-dev pkg-config gcc`
 
 ## Usage
 ```text
