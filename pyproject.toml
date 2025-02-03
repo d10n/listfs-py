@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "listfs"
-version = "0.5.0"
+version = "0.5.1"
 #dynamic = ["version"] # TODO
 description = "Mount file listings as a FUSE filesystem"
 authors = [
