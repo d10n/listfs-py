@@ -51,7 +51,6 @@ from datetime import datetime
 from itertools import islice
 from time import perf_counter
 from typing import Sequence, Dict, List, Tuple
-from weakref import ref, WeakValueDictionary
 
 import pyfuse3
 import trio
@@ -673,7 +672,7 @@ class Node:
         "meta_implicit",
         "meta_implicit_listings",
         "children",
-        "__weakref__",
+        # "__weakref__",
     )
 
     def __init__(
@@ -713,8 +712,8 @@ class ListFS(pyfuse3.Operations):
         # self.node_root.children = WeakValueDictionary()
         self.node_root.children = {}
 
-        self.nodes: WeakValueDictionary[InodeT, Node] = WeakValueDictionary()
-        # self.nodes: dict[InodeT, Node] = {}
+        # self.nodes: WeakValueDictionary[InodeT, Node] = WeakValueDictionary()
+        self.nodes: dict[InodeT, Node] = {}
         self.nodes[pyfuse3.ROOT_INODE] = self.node_root
 
         self.parent: Dict[InodeT, InodeT] = {pyfuse3.ROOT_INODE: pyfuse3.ROOT_INODE}
@@ -722,7 +721,8 @@ class ListFS(pyfuse3.Operations):
         # self.node_lookup: WeakValueDictionary[str, Node] = WeakValueDictionary()
 
         self._next_inode = pyfuse3.ROOT_INODE + 1
-        self.dir_insert_cache: OrderedDict[str, ref[Node]] | None = OrderedDict()
+        # self.dir_insert_cache: OrderedDict[str, ref[Node]] | None = OrderedDict()
+        self.dir_insert_cache: OrderedDict[str, Node] | None = OrderedDict()
         self.loads = 0
         self.perf_start = perf_counter()
 
@@ -748,8 +748,12 @@ class ListFS(pyfuse3.Operations):
         for i in range(len(path_parts), 0, -1):
             sub_path = "/".join(path_parts[:i])
             if sub_path in self.dir_insert_cache:
-                node_ref: ref[Node] = self.dir_insert_cache[sub_path]
-                node = node_ref()
+                # node_ref: ref[Node] = self.dir_insert_cache[sub_path]
+                # node = node_ref()
+                # if node is not None:
+                #     return node, i
+
+                node = self.dir_insert_cache[sub_path]
                 if node is not None:
                     return node, i
         return self.node_root, 0  # Start from the root if no match exists
@@ -763,7 +767,8 @@ class ListFS(pyfuse3.Operations):
             # Move the entry to the end (most recently used)
             self.dir_insert_cache.move_to_end(path)
         else:
-            self.dir_insert_cache[path] = ref(node)
+            # self.dir_insert_cache[path] = ref(node)
+            self.dir_insert_cache[path] = node
             if len(self.dir_insert_cache) > 20:  # Cache limit
                 self.dir_insert_cache.popitem(last=False)  # Evict least recently used
 
