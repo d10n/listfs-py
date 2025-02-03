@@ -1402,21 +1402,23 @@ def main():
     options = transform_user_options(options)
     fuse_options = get_fuse_options(listings, mountpoint, options)
 
+    # Increased load performance 26% on my computer
+    g0, g1, g2 = gc.get_threshold()
+    gc.set_threshold(max(g0, 50_000), g1 * 5, g2 * 10)
+
+
     try:
         operations = ListFS()
-
-        # Increased load performance 26% on my computer
-        g0, g1, g2 = gc.get_threshold()
-        gc.set_threshold(max(g0, 50_000), g1 * 5, g2 * 10)
-
         load_all_listings(listings, operations)
     except KeyboardInterrupt:
         logger.info("Exiting due to keyboard interrupt")
         sys.exit(1)
 
+    gc.set_threshold(1, 1, 1)
     operations.pack_memory()
     re.purge()
     gc.collect()
+    gc.set_threshold(g0, g1, g2)
 
     logger.info("Mounting...")
     pyfuse3.init(operations, mountpoint, fuse_options)
