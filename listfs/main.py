@@ -723,6 +723,9 @@ class ListFS(pyfuse3.Operations):
         self.loads = 0
         self.perf_start = perf_counter()
 
+        self._list_size = 0
+        self._tuple_size = 0
+
     def _allocate_node(self, name, parent_node):
         inode = InodeT(self._next_inode)
         self._next_inode += 1
@@ -1122,6 +1125,34 @@ class ListFS(pyfuse3.Operations):
         xattrs.sort()
         return xattrs
 
+    def pack_memory(self):
+        self.dir_insert_cache = None
+
+        logger.info("Packing lists...")
+        # Remove any preallocated memory for lists
+        for node in self.nodes.values():
+            self._list_size += sys.getsizeof(node.meta_dirs)
+            self._list_size += sys.getsizeof(node.meta_other)
+            self._list_size += sys.getsizeof(node.meta_implicit)
+
+        for node in self.nodes.values():
+            if node.meta_dirs is not None:
+                node.meta_dirs = tuple(node.meta_dirs)
+            if node.meta_other is not None:
+                node.meta_other = tuple(node.meta_other)
+            if node.meta_implicit is not None:
+                node.meta_implicit = tuple(node.meta_implicit)
+            del node.meta_implicit_listings
+
+        for node in self.nodes.values():
+            self._tuple_size += sys.getsizeof(node.meta_dirs)
+            self._tuple_size += sys.getsizeof(node.meta_other)
+            self._tuple_size += sys.getsizeof(node.meta_implicit)
+
+        logger.info("Lists packed.")
+        logger.info(f"Size before : {self._list_size}")
+        logger.info(f"Size after  : {self._tuple_size}")
+
 
 def parse_args(args: list[str]):
     # It was easier to manually parse than to use argparse or click.
@@ -1383,8 +1414,7 @@ def main():
         logger.info("Exiting due to keyboard interrupt")
         sys.exit(1)
 
-    # Prepare to release memory
-    operations.dir_insert_cache = None
+    operations.pack_memory()
     re.purge()
     gc.collect()
 
