@@ -726,7 +726,7 @@ class ListFS(pyfuse3.Operations):
     def _allocate_node(self, name, parent_node):
         inode = InodeT(self._next_inode)
         self._next_inode += 1
-        node = Node(sys.intern(name), st_ino=inode)
+        node = Node(name, st_ino=inode)
         self.nodes[inode] = node
         parent_node.children[name] = node
         self.parent[inode] = parent_node.st_ino
