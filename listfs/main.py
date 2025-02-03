@@ -49,6 +49,7 @@ from collections import defaultdict, OrderedDict
 from contextlib import contextmanager
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
+from itertools import islice
 from time import perf_counter
 from typing import Sequence, Dict, List
 from weakref import ref, WeakValueDictionary
@@ -953,16 +954,28 @@ class ListFS(pyfuse3.Operations):
     async def readdir(
         self, inode: pyfuse3.FileHandleT, start_id: int, token: pyfuse3.ReaddirToken
     ) -> None:
-        entries = [(".", inode), ("..", self.parent[InodeT(inode)])]
-        node = self.nodes[InodeT(inode)]
-        for name, child in node.children.items():
-            entries.append((name, child.st_ino))
-
-        for next_id, (name, inode) in enumerate(entries[start_id:], start_id + 1):
-            attrs = await self.getattr(inode)
-            reply_ok = pyfuse3.readdir_reply(token, FileNameT(os.fsencode(name)), attrs, next_id)
+        inode_ = InodeT(inode)
+        if inode_ not in self.nodes:
+            raise pyfuse3.FUSEError(errno.ENOENT)
+        if start_id == 0:
+            attrs = await self.getattr(inode_)
+            reply_ok = pyfuse3.readdir_reply(token, FileNameT(b"."), attrs, start_id + 1)
             if not reply_ok:
-                break
+                return
+            start_id += 1
+        if start_id == 1:
+            attrs = await self.getattr(self.parent[inode_])
+            reply_ok = pyfuse3.readdir_reply(token, FileNameT(b".."), attrs, start_id + 1)
+            if not reply_ok:
+                return
+            start_id += 1
+        node = self.nodes[inode_]
+        for name, child in islice(node.children.items(), start_id - 2, None):
+            attrs = await self.getattr(child.st_ino)
+            reply_ok = pyfuse3.readdir_reply(token, FileNameT(os.fsencode(name)), attrs, start_id + 1)
+            if not reply_ok:
+                return
+            start_id += 1
 
     async def releasedir(self, fh: FileHandleT) -> None:
         pass
