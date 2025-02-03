@@ -970,12 +970,13 @@ class ListFS(pyfuse3.Operations):
             st_nlink = 1
         else:
             st_nlink = 2  # 1 for "." and 1 for ".."
-            if node.children is not None:
-                for child_name, child in node.children.items():
-                    if child.meta_dirs is not None and len(child.meta_dirs) > 0:
-                        st_nlink += 1
-                    elif child.meta_implicit is not None and len(child.meta_implicit) > 0:
-                        st_nlink += 1
+            # Nice to have, and correct, but maybe slow:
+            # if node.children is not None:
+            #     for child_name, child in node.children.items():
+            #         if child.meta_dirs is not None and len(child.meta_dirs) > 0:
+            #             st_nlink += 1
+            #         elif child.meta_implicit is not None and len(child.meta_implicit) > 0:
+            #             st_nlink += 1
         entry.st_nlink = st_nlink
 
         entry.st_uid = os.getuid()
