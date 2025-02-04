@@ -702,6 +702,25 @@ class Node:
         self.meta_implicit_listings = meta_implicit_listings if meta_implicit_listings is not None else set()
         self.children = children
 
+    def get_meta(self) -> Meta:
+        if self.meta_dirs:  # Explicit directories first
+            return self.meta_dirs[0]
+        if self.meta_implicit:  # Implicit directories next
+            return self.meta_implicit[0]
+        if self.meta_other:  # Other file types last
+            return self.meta_other[0]
+        raise ValueError("Node should be created with at least one Meta")
+
+    def get_metas(self) -> Sequence[Meta]:
+        metas = []
+        if self.meta_dirs is not None:
+            metas.extend(self.meta_dirs)
+        if self.meta_other is not None:
+            metas.extend(self.meta_other)
+        if self.meta_implicit is not None:
+            metas.extend(self.meta_implicit)
+        return metas
+
 
 @dataclass
 class ListFsOptions:
@@ -790,16 +809,6 @@ class ListFS(pyfuse3.Operations):
             self.dir_insert_cache[path_part_slice] = node
             if len(self.dir_insert_cache) > 20:  # Cache limit
                 self.dir_insert_cache.popitem(last=False)  # Evict least recently used
-
-    def _get_metas(self, node: Node) -> Sequence[Meta]:
-        metas = []
-        if node.meta_dirs is not None:
-            metas.extend(node.meta_dirs)
-        if node.meta_other is not None:
-            metas.extend(node.meta_other)
-        if node.meta_implicit is not None:
-            metas.extend(node.meta_implicit)
-        return metas
 
     def load_listing(self, file, skip_components=0, prefix_dir=None):
         skip_root_state = {}
@@ -1050,7 +1059,7 @@ class ListFS(pyfuse3.Operations):
 
     async def read(self, fh: FileHandleT, offset: int, length: int) -> bytes:
         node = self.nodes[InodeT(fh)]
-        metas = self._get_metas(node)
+        metas = node.get_metas()
         attrs = []
         for meta in metas:
             meta_dict = dict(meta)
@@ -1131,7 +1140,7 @@ class ListFS(pyfuse3.Operations):
         except ValueError:
             raise pyfuse3.FUSEError(errno.ENODATA)
         node = self.nodes[inode]
-        metas = self._get_metas(node)
+        metas = node.get_metas()
         if not metas:
             raise pyfuse3.FUSEError(errno.ENODATA)
         grouped_src_metas = defaultdict(list)
@@ -1155,7 +1164,7 @@ class ListFS(pyfuse3.Operations):
         self, inode: pyfuse3.InodeT, ctx: pyfuse3.RequestContext = None
     ) -> Sequence[pyfuse3.XAttrNameT]:
         node: Node = self.nodes[inode]
-        metas = self._get_metas(node)
+        metas = node.get_metas()
         grouped_src_metas = defaultdict(list)
         for meta in metas:
             grouped_src_metas[meta.src_listing].append(meta)
