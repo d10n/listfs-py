@@ -730,6 +730,8 @@ class ListFS(pyfuse3.Operations):
         self.dir_insert_cache: OrderedDict[str, Node] | None = OrderedDict()
         self.loads = 0
         self.perf_start = perf_counter()
+        self.loads_since_last_log = 0
+        self.perf_last_log = 0
 
         self._list_size = 0
         self._tuple_size = 0
@@ -789,7 +791,6 @@ class ListFS(pyfuse3.Operations):
 
     def load_listing(self, file, skip_components=0, prefix_dir=None):
         skip_root_state = {}
-        perf_last_log = 0
         if prefix_dir:
             prefix_parts = [part for part in prefix_dir.split("/") if part not in [".", ""]]
         else:
@@ -801,15 +802,16 @@ class ListFS(pyfuse3.Operations):
 
         def insert_node(record):
             if self.loads % 10000 == 0:
-                nonlocal perf_last_log
                 perf_now = perf_counter()
-                if perf_now - perf_last_log > 5:
-                    perf_last_log = perf_now
+                if perf_now - self.perf_last_log > 5:
                     logger.info(f"Percent complete: {(100 * self.loads / total_line_count):.2f}%; "
                                 f"Total loaded records so far: {self.loads}; "
-                                f"Records per second: {self.loads / (perf_now - self.perf_start):.0f}"
+                                f"Records per second: {self.loads_since_last_log / (perf_now - self.perf_last_log):.0f}"
                                 )
+                    self.perf_last_log = perf_now
+                    self.loads_since_last_log = 0
             self.loads += 1
+            self.loads_since_last_log += 1
             path_parts = [part for part in record.path.split("/") if part not in [".", ""]]
             if skip_components:
                 if len(path_parts) < skip_components:
