@@ -33,6 +33,7 @@ import codecs
 import errno
 import faulthandler
 import gc
+import grp
 import gzip
 import io
 import json
@@ -40,6 +41,7 @@ import logging
 import lzma
 import math
 import os
+import pwd
 import re
 import signal
 import stat
@@ -47,6 +49,7 @@ import sys
 import textwrap
 from collections import defaultdict, OrderedDict
 from contextlib import contextmanager
+from dataclasses import dataclass, asdict
 from datetime import datetime
 from itertools import islice
 from time import perf_counter
@@ -700,9 +703,17 @@ class Node:
         self.children = children
 
 
+@dataclass
+class ListFsOptions:
+    uid: int = os.getuid()
+    gid: int = os.getgid()
+
+
 class ListFS(pyfuse3.Operations):
-    def __init__(self):
+    def __init__(self, listfs_options: ListFsOptions):
         super().__init__()
+        self.options = listfs_options
+
         self.node_root = Node(
             name="",
             st_ino=pyfuse3.ROOT_INODE,
@@ -994,8 +1005,8 @@ class ListFS(pyfuse3.Operations):
             #                 st_nlink += 1
         entry.st_nlink = st_nlink
 
-        entry.st_uid = os.getuid()
-        entry.st_gid = os.getgid()
+        entry.st_uid = self.options.uid
+        entry.st_gid = self.options.gid
         # entry.st_rdev
         entry.st_size = meta.bytes
         # entry.st_size = 0
@@ -1281,6 +1292,7 @@ def parse_args(args: list[str]):
 
 def transform_user_options(options):
     options = set(options)
+    fs_options = ListFsOptions()
     if "rw" in options:
         logger.warning("listfs does not support the rw option; ignoring it")
         options.remove("rw")
@@ -1288,10 +1300,34 @@ def transform_user_options(options):
         if option.startswith("fsname="):
             logger.debug("discarding custom fsname option")
             options.remove(option)
-    return options
+        if option.startswith("uid="):
+            uid = option.removeprefix("uid=")
+            try:
+                fs_options.uid = pwd.getpwuid(int(uid)).pw_uid
+            except Exception as e:
+                try:
+                    fs_options.uid = pwd.getpwnam(uid).pw_uid
+                except Exception as e:
+                    logger.error("Not able to read uid", exc_info=e)
+                    sys.exit(1)
+            options.remove(option)
+        if option.startswith("gid="):
+            gid = option.removeprefix("gid=")
+            try:
+                fs_options.gid = grp.getgrgid(int(gid)).gr_gid
+            except Exception as e:
+                try:
+                    fs_options.gid = grp.getgrnam(gid).gr_gid
+                except Exception as e:
+                    logger.error("Not able to read gid", exc_info=e)
+                    sys.exit(1)
+            options.remove(option)
+    if fs_options.uid != os.getuid() and "allow_other" not in options:
+        logger.warning("uid option specified for another user, but the other user will not be able to read unless allow_other is also specified")
+    return fs_options, options
 
 
-def get_fuse_options(listings, mountpoint, options):
+def get_fuse_options(options):
     fuse_options = set(pyfuse3.default_options)
     fuse_options.update(options)
     fuse_options.add("fsname=listfs")
@@ -1302,10 +1338,6 @@ def get_fuse_options(listings, mountpoint, options):
     # fuse_options.add("auto_unmount")
 
     # fuse_options.add("debug")
-    logger.debug(json.dumps(list(fuse_options)))
-    for listing in listings:
-        logger.debug(json.dumps(listing))
-    logger.debug(json.dumps(mountpoint))
     return fuse_options
 
 
@@ -1427,15 +1459,21 @@ def main():
     )
     logger.info("Starting listfs...")
 
-    options = transform_user_options(options)
-    fuse_options = get_fuse_options(listings, mountpoint, options)
+    listfs_options, other_options = transform_user_options(options)
+    fuse_options = get_fuse_options(other_options)
+
+    logger.debug(json.dumps(asdict(listfs_options)))
+    logger.debug(json.dumps(list(fuse_options)))
+    for listing in listings:
+        logger.debug(json.dumps(listing))
+    logger.debug(json.dumps(mountpoint))
 
     # Increased load performance 26% on my computer
     g0, g1, g2 = gc.get_threshold()
     gc.set_threshold(max(g0, 50_000), g1 * 5, g2 * 10)
 
     try:
-        operations = ListFS()
+        operations = ListFS(listfs_options)
         load_all_listings(listings, operations)
     except KeyboardInterrupt:
         logger.info("Exiting due to keyboard interrupt")
