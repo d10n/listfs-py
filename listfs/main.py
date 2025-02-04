@@ -1352,18 +1352,6 @@ def count_lines(filename):
         logger.error(f"Error counting lines in listing {filename}: {e}")
         return 0
 
-# Not useful with compressed files...
-# def buf_count_newlines_gen(fname): # https://stackoverflow.com/a/68385697
-#     def _make_gen(reader):
-#         b = reader(2 ** 16)
-#         while b:
-#             yield b
-#             b = reader(2 ** 16)
-#
-#     with open(fname, "rb") as f:
-#         count = sum(buf.count(b"\n") for buf in _make_gen(f.raw.read))
-#     return count
-
 
 def daemonize():
     logger.info("Daemonizing...")
