@@ -767,6 +767,9 @@ class ListFS(pyfuse3.Operations):
         self._list_size = 0
         self._tuple_size = 0
 
+        self._total_bytes = 0
+        self._total_blocks = 0
+
     def _allocate_node(self, name, parent_node):
         inode = InodeT(self._next_inode)
         self._next_inode += 1
@@ -809,6 +812,17 @@ class ListFS(pyfuse3.Operations):
             self.dir_insert_cache[path_part_slice] = node
             if len(self.dir_insert_cache) > 20:  # Cache limit
                 self.dir_insert_cache.popitem(last=False)  # Evict least recently used
+
+    def calculate_size(self):
+        logger.info("Calculating total size...")
+        bytes_ = 0
+        blocks = 0
+        for node in self.nodes.values():
+            meta = node.get_meta()
+            blocks += meta.block_kib
+            bytes_ += meta.bytes
+        self._total_blocks = blocks
+        self._total_bytes = bytes_
 
     def load_listing(self, file, skip_components=0, prefix_dir=None):
         skip_root_state = {}
@@ -1110,13 +1124,18 @@ class ListFS(pyfuse3.Operations):
         pass
 
     async def statfs(self, ctx: pyfuse3.RequestContext = None) -> pyfuse3.StatvfsData:
+        # man statvfs
         stat_ = pyfuse3.StatvfsData()
-        stat_.f_bfree = 0
         stat_.f_bsize = 1024
-        stat_.f_ffree = 0
-        stat_.f_files = len(self.nodes)
+        stat_.f_frsize = 1024  # 1 would work fine too
+        # f_blocks is in frsize units.
+        # Use total_bytes because records are more likely to have byte size than block size
+        stat_.f_blocks = math.ceil(self._total_bytes / 1024)  # Could use int directly if frsize is 1
+        stat_.f_bfree = 0
         stat_.f_bavail = 0
-        stat_.f_blocks = 0
+        stat_.f_files = len(self.nodes)
+        stat_.f_ffree = 0
+        stat_.f_favail = 0
         stat_.f_namemax = 255  # Could be lengthened?
         return stat_
 
@@ -1385,6 +1404,8 @@ def load_all_listings(listings, operations):
             node.meta_implicit.sort(key=lambda x: x.mtime_ns, reverse=True)
         if node.meta_other is not None:
             node.meta_other.sort(key=lambda x: x.mtime_ns, reverse=True)
+
+    operations.calculate_size()
 
 
 def count_lines(filename):
