@@ -431,10 +431,11 @@ def read_records(listing):
             line = line.removesuffix("\n")
             line = line.removesuffix("\0")
             record_json = None
-            try:
-                record_json = json.loads(line)
-            except json.JSONDecodeError:
-                pass
+            if line.startswith("{") or line.startswith("["):
+                try:
+                    record_json = json.loads(line)
+                except json.JSONDecodeError:
+                    pass
 
             if isinstance(record_json, list):
                 if len(record_json) == 3:
