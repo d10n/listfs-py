@@ -350,7 +350,10 @@ def open_maybe_compressed(filepath, mode):
             )
         else:
             # Fallback for plain text files
-            reader = io.TextIOWrapper(buffered_stream, encoding=encoding, errors=errors)
+            if mode == "rt":
+                reader = io.TextIOWrapper(buffered_stream, encoding=encoding, errors=errors)
+            else:
+                reader = buffered_stream
         yield reader
     finally:
         if reader is not None:
