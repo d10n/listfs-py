@@ -299,11 +299,11 @@ def open_maybe_compressed(filepath, mode):
     """
     Open a file handle for compressed or plain text files based on magic numbers.
     Supports paths that represent special files like `/dev/stdin`.
-    <mode> can be "t" or "b", for text or binary.
+    <mode> can be "rt" or "rb", for text or binary.
     """
 
-    if mode not in {"t", "b"}:
-        raise ValueError("Mode must be either 't' or 'b'")
+    if mode not in {"rt", "rb"}:
+        raise ValueError("Mode must be either 'rt' or 'rb'")
 
     raw_stream = None
     buffered_stream = None
@@ -316,7 +316,6 @@ def open_maybe_compressed(filepath, mode):
 
         magic = buffered_stream.peek(8)
 
-        mode = f"r{mode}"
         encoding = "utf-8" if mode == "rt" else None
         errors = "ignore" if mode == "rt" else None
 
@@ -424,7 +423,7 @@ def read_records(listing):
     listing_stat = os.stat(listing)
     logger.info(f"Opening listing {listing}")
 
-    with open_maybe_compressed(listing, "t") as f:
+    with open_maybe_compressed(listing, "rt") as f:
         for line in f:
             line = line.removesuffix("\n")
             line = line.removesuffix("\0")
@@ -1325,7 +1324,7 @@ def load_all_listings(listings, operations):
 
 def count_lines(filename):
     try:
-        with open_maybe_compressed(filename, mode="t") as f:
+        with open_maybe_compressed(filename, mode="rt") as f:
             return sum(1 for _ in f)
     except Exception as e:
         logger.error(f"Error counting lines in listing {filename}: {e}")
