@@ -688,7 +688,7 @@ class Node:
             meta_other: List[Meta] | Tuple[Meta, ...] | None = None,
             meta_implicit: List[Meta] | Tuple[Meta, ...] | None = None,
             meta_implicit_listings: set[str] | frozenset[str] | None = None,
-            children: Dict[str, "Node"] | None = None,
+            children: Dict[str, pyfuse3.InodeT] | None = None,
     ):
         self.name = name
         self.st_ino = st_ino
@@ -741,7 +741,7 @@ class ListFS(pyfuse3.Operations):
         self._next_inode += 1
         node = Node(name, st_ino=inode)
         self.nodes[inode] = node
-        parent_node.children[name] = node
+        parent_node.children[name] = inode
         self.parent[inode] = parent_node.st_ino
         return node
 
@@ -855,7 +855,7 @@ class ListFS(pyfuse3.Operations):
                     parent_node.children = {}
                     node = self._allocate_node(part, parent_node)
                 elif part in parent_node.children:
-                    node = parent_node.children[part]
+                    node = self.nodes[parent_node.children[part]]
                 else:
                     node = self._allocate_node(part, parent_node)
 
@@ -946,7 +946,10 @@ class ListFS(pyfuse3.Operations):
             children = self.nodes[parent_inode].children
             if children is None:
                 raise pyfuse3.FUSEError(errno.ENOENT)
-            node = children.get(os.fsdecode(name))
+            inode = children.get(os.fsdecode(name))
+            if inode is None:
+                raise pyfuse3.FUSEError(errno.ENOENT)
+            node = self.nodes[inode]
             if not node:
                 raise pyfuse3.FUSEError(errno.ENOENT)
             inode = node.st_ino
@@ -955,7 +958,9 @@ class ListFS(pyfuse3.Operations):
     async def getattr(
         self, inode: InodeT, ctx: pyfuse3.RequestContext = None
     ) -> pyfuse3.EntryAttributes:
-        node = self.nodes[inode]
+        node = self.nodes.get(inode)
+        if node is None:
+            raise pyfuse3.FUSEError(errno.ENOENT)
         if node.meta_dirs:  # Explicit directories first
             meta = node.meta_dirs[0]
         elif node.meta_implicit:  # Implicit directories next
@@ -979,11 +984,13 @@ class ListFS(pyfuse3.Operations):
             st_nlink = 2  # 1 for "." and 1 for ".."
             # Nice to have, and correct, but maybe slow:
             # if node.children is not None:
-            #     for child_name, child in node.children.items():
-            #         if child.meta_dirs is not None and len(child.meta_dirs) > 0:
-            #             st_nlink += 1
-            #         elif child.meta_implicit is not None and len(child.meta_implicit) > 0:
-            #             st_nlink += 1
+            #     for child_name, child_inode in node.children.items():
+            #         child = self.nodes.get(child_inode)
+            #         if child is not None:
+            #             if child.meta_dirs is not None and len(child.meta_dirs) > 0:
+            #                 st_nlink += 1
+            #             elif child.meta_implicit is not None and len(child.meta_implicit) > 0:
+            #                 st_nlink += 1
         entry.st_nlink = st_nlink
 
         entry.st_uid = os.getuid()
@@ -1071,8 +1078,8 @@ class ListFS(pyfuse3.Operations):
                 return
             start_id += 1
         node = self.nodes[inode_]
-        for name, child in islice(node.children.items(), start_id - 2, None):
-            attrs = await self.getattr(child.st_ino)
+        for name, child_inode in islice(node.children.items(), start_id - 2, None):
+            attrs = await self.getattr(child_inode)
             reply_ok = pyfuse3.readdir_reply(token, FileNameT(os.fsencode(name)), attrs, start_id + 1)
             if not reply_ok:
                 return
