@@ -1298,7 +1298,7 @@ def get_fuse_options(listings, mountpoint, options):
     # fuse_options.add("allow_other")
     fuse_options.add("ro")
 
-    # Seems to conflict with atexit / prints "fusermount3: /mnt not mounted"
+    # Prints "fusermount3: /mnt not mounted" if not auto unmounted by fuse
     # fuse_options.add("auto_unmount")
 
     # fuse_options.add("debug")
