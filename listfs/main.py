@@ -1097,13 +1097,22 @@ class ListFS(pyfuse3.Operations):
         ctx: pyfuse3.RequestContext = None,
     ) -> bytes:
         name_str = os.fsdecode(name)
+        if not name_str.startswith("user."):
+            raise pyfuse3.FUSEError(errno.ENODATA)
         name_u = name_str.removeprefix("user.")
         # Use :: to separate listing filename from column name
         src_listing, _, xattr_name = name_u.partition("::")
         src_listing, _, index = src_listing.rpartition("_")
-        index = int(index)
+        if not xattr_name or not index:
+            raise pyfuse3.FUSEError(errno.ENODATA)
+        try:
+            index = int(index)
+        except ValueError:
+            raise pyfuse3.FUSEError(errno.ENODATA)
         node = self.nodes[inode]
         metas = self._get_metas(node)
+        if not metas:
+            raise pyfuse3.FUSEError(errno.ENODATA)
         grouped_src_metas = defaultdict(list)
         for meta in metas:
             grouped_src_metas[meta.src_listing].append(meta)
