@@ -235,6 +235,8 @@ def file_type_to_string(st_mode):
 def fileperm_to_mode(perm):
     """Take rwxrwxrwx permission string and return the mode."""
     # Opposite of fileperm(). @see cpython/Modules/_stat.c:412 fileperm(mode_t mode, char *buf)
+    if len(perm) != 9:
+        raise ValueError(f"permission string must be 9 characters long: {perm}")
     mode = 0
     if perm[0] == "r":
         mode |= stat.S_IRUSR
