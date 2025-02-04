@@ -727,7 +727,7 @@ class ListFS(pyfuse3.Operations):
 
         self._next_inode = pyfuse3.ROOT_INODE + 1
         # self.dir_insert_cache: OrderedDict[str, ref[Node]] | None = OrderedDict()
-        self.dir_insert_cache: OrderedDict[str, Node] | None = OrderedDict()
+        self.dir_insert_cache: OrderedDict[Tuple[str, ...], Node] | None = OrderedDict()
         self.loads = 0
         self.perf_start = perf_counter()
         self.loads_since_last_log = 0
@@ -745,7 +745,7 @@ class ListFS(pyfuse3.Operations):
         self.parent[inode] = parent_node.st_ino
         return node
 
-    def _lookup_in_cache(self, path_parts) -> tuple[Node, int]:
+    def _lookup_in_cache(self, path_parts: Tuple) -> Tuple[Node, int]:
         """
         Check the LRU cache for the nearest ancestor directory node.
         Return the node and depth if matched, else None and start from the root.
@@ -753,7 +753,7 @@ class ListFS(pyfuse3.Operations):
         if not self.dir_insert_cache:
             return self.node_root, 0
         for i in range(len(path_parts), 0, -1):
-            sub_path = "/".join(path_parts[:i])
+            sub_path = path_parts[:i]
             if sub_path in self.dir_insert_cache:
                 # node_ref: ref[Node] = self.dir_insert_cache[sub_path]
                 # node = node_ref()
@@ -765,17 +765,17 @@ class ListFS(pyfuse3.Operations):
                     return node, i
         return self.node_root, 0  # Start from the root if no match exists
 
-    def _update_cache(self, path: str, node: Node):
+    def _update_cache(self, path_part_slice: Tuple[str, ...], node: Node):
         """
         Update the LRU cache with the given path and node.
         Evicts the least recently used entry if the cache exceeds its limit.
         """
-        if path in self.dir_insert_cache:
+        if path_part_slice in self.dir_insert_cache:
             # Move the entry to the end (most recently used)
-            self.dir_insert_cache.move_to_end(path)
+            self.dir_insert_cache.move_to_end(path_part_slice)
         else:
             # self.dir_insert_cache[path] = ref(node)
-            self.dir_insert_cache[path] = node
+            self.dir_insert_cache[path_part_slice] = node
             if len(self.dir_insert_cache) > 20:  # Cache limit
                 self.dir_insert_cache.popitem(last=False)  # Evict least recently used
 
@@ -792,9 +792,9 @@ class ListFS(pyfuse3.Operations):
     def load_listing(self, file, skip_components=0, prefix_dir=None):
         skip_root_state = {}
         if prefix_dir:
-            prefix_parts = [part for part in prefix_dir.split("/") if part not in [".", ""]]
+            prefix_parts = tuple(part for part in prefix_dir.split("/") if part not in (".", ""))
         else:
-            prefix_parts = []
+            prefix_parts = tuple()
 
         # TODO: store the last 20 directory nodes and their paths to a LRU cache,
         #  so that if the next node being inserted shares a parent directory,
@@ -812,17 +812,17 @@ class ListFS(pyfuse3.Operations):
                     self.loads_since_last_log = 0
             self.loads += 1
             self.loads_since_last_log += 1
-            path_parts = [part for part in record.path.split("/") if part not in [".", ""]]
+            path_parts = tuple(part for part in record.path.split("/") if part not in (".", ""))
             if skip_components:
                 if len(path_parts) < skip_components:
                     return
-                root_dir = "/".join(path_parts[:skip_components])
+                root_dir = path_parts[:skip_components]
                 if "root_dir" not in skip_root_state:
                     skip_root_state["root_dir"] = root_dir
                 if skip_root_state["root_dir"] != root_dir:
                     raise KeyError(f"Unable to skip {skip_components} components on listing {file}; conflicting paths: {json.dumps(skip_root_state["root_dir"])}, {json.dumps(root_dir)}")
 
-            mounted_path_parts = prefix_parts + path_parts[skip_components:]
+            mounted_path_parts = tuple(prefix_parts + path_parts[skip_components:])
 
             # parent_node = self.nodes[pyfuse3.ROOT_INODE]
             parent_node, start_at = self._lookup_in_cache(mounted_path_parts[:-1])
@@ -859,7 +859,7 @@ class ListFS(pyfuse3.Operations):
                 else:
                     node = self._allocate_node(part, parent_node)
 
-                self._update_cache("/".join(mounted_path_parts[:i + 1]), node)
+                self._update_cache(mounted_path_parts[:i + 1], node)
                 last_part = i == len(mounted_path_parts) - 1
                 if last_part:
                     # Fill in leaf
