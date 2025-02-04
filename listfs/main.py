@@ -232,6 +232,7 @@ def file_type_to_string(st_mode):
     else:
         return "Unknown file type"
 
+
 def fileperm_to_mode(perm):
     """Take rwxrwxrwx permission string and return the mode."""
     # Opposite of fileperm(). @see cpython/Modules/_stat.c:412 fileperm(mode_t mode, char *buf)
@@ -1344,6 +1345,7 @@ def load_all_listings(listings, operations):
         if node.meta_other is not None:
             node.meta_other.sort(key=lambda x: x.mtime_ns, reverse=True)
 
+
 def count_lines(filename):
     try:
         with open_maybe_compressed(filename, mode="rt") as f:
@@ -1388,6 +1390,7 @@ async def signal_handler(cancel_scope):
             cancel_scope.cancel()
             break
 
+
 async def run_main():
     async with trio.open_nursery() as nursery:
         nursery.start_soon(signal_handler, nursery.cancel_scope)
@@ -1425,7 +1428,6 @@ def main():
     # Increased load performance 26% on my computer
     g0, g1, g2 = gc.get_threshold()
     gc.set_threshold(max(g0, 50_000), g1 * 5, g2 * 10)
-
 
     try:
         operations = ListFS()
