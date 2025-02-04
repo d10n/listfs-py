@@ -1444,6 +1444,17 @@ def main():
     re.purge()
     logger.info("Garbage collecting...")
     gc.collect()
+
+    try:
+        # Release memory on Linux
+        import ctypes
+        libc = ctypes.CDLL("libc.so.6")
+        logger.info("Trimming memory...")
+        libc.malloc_trim(0)
+        logger.info("Memory trimmed")
+    except (OSError, AttributeError) as e:
+        logger.info("Memory not trimmed")
+
     gc.set_threshold(g0, g1, g2)
 
     logger.info("Mounting...")
