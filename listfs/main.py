@@ -1405,6 +1405,11 @@ async def run_main():
             nursery.cancel_scope.cancel()
 
 
+def exit_hook():
+    logger.info("Exiting...")
+    pyfuse3.close(unmount=True)
+
+
 def main():
     try:
         options, foreground, mountpoint, listings = parse_args(sys.argv[1:])
@@ -1460,7 +1465,7 @@ def main():
     if not foreground:
         daemonize()
 
-    atexit.register(lambda: pyfuse3.close(unmount=True))
+    atexit.register(exit_hook)
     try:
         trio.run(run_main, restrict_keyboard_interrupt_to_checkpoints=True)
     except Exception:
