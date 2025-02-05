@@ -283,6 +283,11 @@ escape_chars = {
     "t": "\t",
     "v": "\v",
     "\\": "\\",
+
+    # Below is only for locale quoting style,
+    # but should be fine for escape quoting style too
+    " ": " ",
+    '"': '"',
 }
 
 
@@ -290,7 +295,7 @@ def is_octal(c: str):
     return all("0" <= c <= "7" for c in c)
 
 
-def unquote_gnulib_escape(arg: str):
+def unquote_gnulib(arg: str):
     # @see gnulib/lib/quotearg.c quotearg and quotearg_buffer_restyled
     # My tar defaults to --quoting-style=escape
     # Do not use unicode_escape - it mangles non ascii text
@@ -299,12 +304,12 @@ def unquote_gnulib_escape(arg: str):
     # Also @see findutils/lib/printquoted.c print_quoted
 
     # find defaults to locale_quoting_style, which is different from escape_quoting_style
-    # TODO handle locale_quoting_style too
 
     # TODO improve the performance. This is very slow.
     # 126000 records per second when this is not used,
     # 98000 records per second when this is used.
     result = []
+    b = bytearray()
     i = 0
     while i < len(arg):
         if arg[i] == "\\":
@@ -313,11 +318,15 @@ def unquote_gnulib_escape(arg: str):
                 arg = arg[i + 2:]
                 i = 0
                 continue
-            if i + 3 < len(arg) and is_octal(arg[i + 1:i + 4]):
-                c = chr(int(arg[i + 1:i + 4], 8))
-                result.append(arg[:i] + c)
+            while i + 3 < len(arg) and is_octal(arg[i + 1:i + 4]):
+                if i > 0:
+                    result.append(arg[:i])
+                b.append(int(arg[i + 1:i + 4], 8))
                 arg = arg[i + 4:]
                 i = 0
+            if b:
+                result.append(b.decode())
+                b.clear()
                 continue
             # Expected escape but sequence not handled
             # Treat as literal
@@ -546,7 +555,7 @@ def read_records(listing):
             if gnu_tar_matched:
                 target = None
                 typ, perms, has_xattrs, user, group, size, major, minor, mtime, path = gnu_tar_matched.groups()
-                path = unquote_gnulib_escape(path)
+                path = unquote_gnulib(path)
                 if typ == "l":
                     path, target = path.split(" -> ", 1)
                 if typ == "h":
@@ -585,7 +594,7 @@ def read_records(listing):
                 src_inode, block_kib, typ, perms, link_no, user, group, size, major, minor, date, path = find_ls_matched.groups()
                 fallback_year = datetime.fromtimestamp(listing_stat.st_mtime).year
                 mtime_ns = int(parse_ls_date(date, fallback_year).timestamp() * 1e9)
-                # path = unquote_gnulib_escape(path) # TODO handle locale_quoting_style
+                path = unquote_gnulib(path)
                 record = Record(
                     src_inode=int(src_inode),
                     block_kib=int(block_kib),
