@@ -306,27 +306,23 @@ def unquote_gnulib_escape(arg: str):
     # 98000 records per second when this is used.
     result = []
     i = 0
-    l = 0
     while i < len(arg):
         if arg[i] == "\\":
-            if c := escape_chars.get(arg[i+1]):
-                if i != l:
-                    result.append(arg[l:i])
-                result.append(c)
-                i += 2
-                l = i
+            if i + 1 < len(arg) and (c := escape_chars.get(arg[i + 1])):
+                result.append(arg[:i] + c)
+                arg = arg[i + 2:]
+                i = 0
                 continue
-            if (c := arg[i+1:i+4]) and len(c) == 3 and is_octal(c):
-                if i != l:
-                    result.append(arg[l:i])
-                result.append(chr(int(c, 8)))
-                i += 4
-                l = i
+            if i + 3 < len(arg) and is_octal(arg[i + 1:i + 4]):
+                c = chr(int(arg[i + 1:i + 4], 8))
+                result.append(arg[:i] + c)
+                arg = arg[i + 4:]
+                i = 0
                 continue
             # Expected escape but sequence not handled
             # Treat as literal
         i += 1
-    result.append(arg[l:i])
+    result.append(arg)
     return "".join(result)
 
 
