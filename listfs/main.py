@@ -433,8 +433,7 @@ def _is_valid_bzip2(buffered_stream):
     # 425a 68xx 3141 5926 5359
 
     if not (magic_bytes.startswith(b"BZh")
-            and magic_bytes[3:4].isdigit()
-            and 1 <= int(magic_bytes[3:4]) <= 9):
+            and b"1" <= magic_bytes[3:4] <= b"9"):
         return False
 
     # Read beyond the header for further inspection
