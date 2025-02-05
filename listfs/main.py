@@ -483,8 +483,7 @@ def read_records(listing):
 
     with open_maybe_compressed(listing, "rt") as f:
         for line in f:
-            line = line.removesuffix("\n")
-            line = line.removesuffix("\0")
+            line = line.removesuffix("\n").removesuffix("\0")
             record_json = None
             if line.startswith("{") or line.startswith("["):
                 try:
