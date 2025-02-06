@@ -737,7 +737,7 @@ class ListFS(pyfuse3.Operations):
             mounted_path_parts = prefix_parts + path_parts[skip_components:]
 
             # parent_node = self.nodes[pyfuse3.ROOT_INODE]
-            parent_node, start_at = self._lookup_in_cache(mounted_path_parts)
+            parent_node, start_at = self._lookup_in_cache(mounted_path_parts[:-1])
 
             # Check for closest lookup node. We store lookups in 2 part increments.
             # Example:
