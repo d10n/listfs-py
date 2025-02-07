@@ -668,14 +668,21 @@ listing_type_parsers = [
 def read_records(listing):
     listing_stat = os.stat(listing)
     logger.info(f"Opening listing {listing}")
+    detected_listing_parser = None
     with open_maybe_compressed(listing, "rt") as f:
         for line in f:
             line = line.removesuffix("\n").removesuffix("\0")
-            for parser in listing_type_parsers:
-                record = parser(line, listing, listing_stat)
-                if record is not None:
+            if detected_listing_parser is None:
+                for parser in listing_type_parsers:
+                    record = parser(line, listing, listing_stat)
+                    if record is not None:
+                        detected_listing_parser = parser
+                        yield record
+                        break
+            else:
+                record = detected_listing_parser(line, listing, listing_stat)
+                if record:
                     yield record
-                    break
 
 
 class Record:  # Basically the same as Meta but with path and no src_listing
