@@ -486,167 +486,196 @@ def _open_lz4(buffered_stream, mode):
     return reader
 
 
-def read_records(listing):
-    listing_stat = os.stat(listing)
-    logger.info(f"Opening listing {listing}")
-
-    with open_maybe_compressed(listing, "rt") as f:
-        for line in f:
-            line = line.removesuffix("\n").removesuffix("\0")
-            record_json = None
-            if line.startswith("{") or line.startswith("["):
-                try:
-                    record_json = json.loads(line)
-                except json.JSONDecodeError:
-                    pass
-
-            if isinstance(record_json, list):
-                if len(record_json) == 3:
-                    mtime_ns = int(float(record_json[0]) * 1e9)
-                    path = record_json[2]
-                    typ = "d" if path.endswith("/") else "f"
-                    mode = (0o755 if path.endswith("/") else 0o644) | filetype_to_mode[typ]
-                    size = record_json[1]
-                    record = Record(
-                        mtime_ns=mtime_ns,
-                        bytes=size,
-                        block_kib=math.ceil(size / 1024),
-                        path=path,
-                        typ=typ,
-                        mode=mode,
-                    )
-                    yield record
-                    continue
-                if len(record_json) == 4:
-                    mtime_ns = int(float(record_json[0]) * 1e9)
-                    path = record_json[3]
-                    typ = "d" if path.endswith("/") else "f"
-                    mode = (0o755 if path.endswith("/") else 0o644) | filetype_to_mode[typ]
-                    record = Record(
-                        mtime_ns=mtime_ns,
-                        bytes=record_json[1],
-                        block_kib=record_json[2],
-                        path=path,
-                        typ=typ,
-                        mode=mode,
-                    )
-                    yield record
-                    continue
-            elif isinstance(record_json, dict):
-                mtime_ns = int(float(record_json["t"]) * 1e9)
-                typ = record_json["y"] if "y" in record_json else "d" if record_json["p"].endswith("/") else "f"
-                mode = int(record_json["m"], 8) | filetype_to_mode[typ]
-                size = record_json.get("s", 0)
-                record = Record(
-                    mtime_ns=mtime_ns,
-                    bytes=size,
-                    path=record_json["p"],
-                    typ=typ,
-                    mode=mode,
-                    src_inode=int(record_json["i"]) if "i" in record_json else None,
-                    block_kib=record_json.get("k", math.ceil(size / 1024)),
-                    target=record_json.get("l"),
-                    empty=record_json.get("e", False),
-                )
-                yield record
-                continue
-
-            gnu_tar_matched = gnu_tar_format_re.match(line)
-            if gnu_tar_matched:
-                target = None
-                typ, perms, has_xattrs, user, group, size, major, minor, mtime, path = gnu_tar_matched.groups()
-                path = unquote_gnulib(path)
-                if typ == "l":
-                    path, target = path.split(" -> ", 1)
-                if typ == "h":
-                    # NOTE: we're treating hard links like files, could be more robust
-                    # TODO: " link to " is locale-dependent. This is hardcoded for English.
-                    #       the big regex could split on it, but splitting here makes locale support later easier.
-                    path, target = path.split(" link to ", 1)
-
-                colon_count = mtime.count(":")
-                if colon_count == 1:
-                    mtime_ns = int(datetime.strptime(mtime, "%Y-%m-%d %H:%M").timestamp() * 1e9)
-                elif mtime.count(".") == 1:
-                    truncated_mtime = mtime[:26]  # ValueError('unconverted data remains: 001') for smaller fractions of a second
-                    mtime_ns = int(datetime.strptime(truncated_mtime, "%Y-%m-%d %H:%M:%S.%f").timestamp() * 1e9)
-                elif colon_count == 2:
-                    mtime_ns = int(datetime.strptime(mtime, "%Y-%m-%d %H:%M:%S").timestamp() * 1e9)
-                else:
-                    raise ValueError(f"unexpected mtime format: {mtime}, {listing}, {path}")
-                size = int(size) if size else 0
-                record = Record(
-                    mtime_ns=mtime_ns,
-                    typ=typ,
-                    bytes=size,
-                    path=path,
-                    mode=fileperm_to_mode(perms) | filetype_to_mode[typ],
-                    block_kib=math.ceil(size / 1024),
-                    target=target,
-                    src_user=sys.intern(user),
-                    src_group=sys.intern(group),
-                )
-                yield record
-                continue
-
-            find_ls_matched = find_ls_format_re.match(line)
-            if find_ls_matched:
-                src_inode, block_kib, typ, perms, link_no, user, group, size, major, minor, date, path = find_ls_matched.groups()
-                fallback_year = datetime.fromtimestamp(listing_stat.st_mtime).year
-                mtime_ns = int(parse_ls_date(date, fallback_year).timestamp() * 1e9)
-                path = unquote_gnulib(path)
-                record = Record(
-                    src_inode=int(src_inode),
-                    block_kib=int(block_kib),
-                    typ=typ,
-                    mode=fileperm_to_mode(perms) | filetype_to_mode[typ],
-                    src_user=sys.intern(user),
-                    src_group=sys.intern(group),
-                    bytes=int(size),
-                    mtime_ns=mtime_ns,
-                    path=path,
-                )
-                yield record
-                continue
-
-            tabular_matched = tabular_format_re.match(line)
-            if tabular_matched:
-                ts, size, path = tabular_matched.groups()
-                mtime_ns = int(float(ts) * 1e9)
-                typ = "d" if path.endswith("/") else "f"
-                mode = (0o755 if typ == "/" else 0o644) | filetype_to_mode[typ]
-                size = int(size)
-                block_kib = math.ceil(size / 1024)
-                record = Record(
-                    mtime_ns=mtime_ns,
-                    typ=typ,
-                    mode=mode,
-                    bytes=size,
-                    block_kib=block_kib,
-                    path=path,
-                )
-                yield record
-                continue
-
-            if line.startswith("#") or line.startswith("//"):
-                # Expected line to ignore
-                continue
-            # if re.match(r"^File number=[-\d]+, block number=[-\d]+, partition=[-\d]+.$", line):
-            if line.startswith("File number="):
-                # Expected line to ignore
-                continue
-
-            # assume the line is a literal path string now
-            typ = "d" if line.endswith("/") else "f"
-            mode = (0o755 if typ == "d" else 0o644) | filetype_to_mode[typ]
+def read_record_jsonl(line, listing, listing_stat):
+    record_json = None
+    if line.startswith("{") or line.startswith("["):
+        try:
+            record_json = json.loads(line)
+        except json.JSONDecodeError:
+            pass
+    if isinstance(record_json, list):
+        if len(record_json) == 3:
+            mtime_ns = int(float(record_json[0]) * 1e9)
+            path = record_json[2]
+            typ = "d" if path.endswith("/") else "f"
+            mode = (0o755 if path.endswith("/") else 0o644) | filetype_to_mode[
+                typ]
+            size = record_json[1]
             record = Record(
-                mtime_ns=int(listing_stat.st_mtime * 1e9),
-                bytes=0,
-                path=line,
+                mtime_ns=mtime_ns,
+                bytes=size,
+                block_kib=math.ceil(size / 1024),
+                path=path,
                 typ=typ,
                 mode=mode,
             )
-            yield record
+            return record
+        if len(record_json) == 4:
+            mtime_ns = int(float(record_json[0]) * 1e9)
+            path = record_json[3]
+            typ = "d" if path.endswith("/") else "f"
+            mode = (0o755 if path.endswith("/") else 0o644) | filetype_to_mode[
+                typ]
+            record = Record(
+                mtime_ns=mtime_ns,
+                bytes=record_json[1],
+                block_kib=record_json[2],
+                path=path,
+                typ=typ,
+                mode=mode,
+            )
+            return record
+    elif isinstance(record_json, dict):
+        mtime_ns = int(float(record_json["t"]) * 1e9)
+        typ = record_json["y"] if "y" in record_json else "d" if record_json[
+            "p"].endswith("/") else "f"
+        mode = int(record_json["m"], 8) | filetype_to_mode[typ]
+        size = record_json.get("s", 0)
+        record = Record(
+            mtime_ns=mtime_ns,
+            bytes=size,
+            path=record_json["p"],
+            typ=typ,
+            mode=mode,
+            src_inode=int(record_json["i"]) if "i" in record_json else None,
+            block_kib=record_json.get("k", math.ceil(size / 1024)),
+            target=record_json.get("l"),
+            empty=record_json.get("e", False),
+        )
+        return record
+    return None
+
+
+def read_record_tar(line, listing, listing_stat):
+    gnu_tar_matched = gnu_tar_format_re.match(line)
+    if not gnu_tar_matched:
+        return None
+    target = None
+    typ, perms, has_xattrs, user, group, size, major, minor, mtime, path = gnu_tar_matched.groups()
+    path = unquote_gnulib(path)
+    if typ == "l":
+        path, target = path.split(" -> ", 1)
+    if typ == "h":
+        # NOTE: we're treating hard links like files, could be more robust
+        # TODO: " link to " is locale-dependent. This is hardcoded for English.
+        #       the big regex could split on it, but splitting here makes locale support later easier.
+        path, target = path.split(" link to ", 1)
+
+    colon_count = mtime.count(":")
+    if colon_count == 1:
+        mtime_ns = int(
+            datetime.strptime(mtime, "%Y-%m-%d %H:%M").timestamp() * 1e9)
+    elif mtime.count(".") == 1:
+        truncated_mtime = mtime[
+                          :26]  # ValueError('unconverted data remains: 001') for smaller fractions of a second
+        mtime_ns = int(datetime.strptime(truncated_mtime,
+                                         "%Y-%m-%d %H:%M:%S.%f").timestamp() * 1e9)
+    elif colon_count == 2:
+        mtime_ns = int(
+            datetime.strptime(mtime, "%Y-%m-%d %H:%M:%S").timestamp() * 1e9)
+    else:
+        raise ValueError(
+            f"unexpected mtime format: {mtime}, {listing}, {path}")
+    size = int(size) if size else 0
+    record = Record(
+        mtime_ns=mtime_ns,
+        typ=typ,
+        bytes=size,
+        path=path,
+        mode=fileperm_to_mode(perms) | filetype_to_mode[typ],
+        block_kib=math.ceil(size / 1024),
+        target=target,
+        src_user=sys.intern(user),
+        src_group=sys.intern(group),
+    )
+    return record
+
+
+def read_record_find(line, listing, listing_stat):
+    find_ls_matched = find_ls_format_re.match(line)
+    if not find_ls_matched:
+        return None
+    src_inode, block_kib, typ, perms, link_no, user, group, size, major, minor, date, path = find_ls_matched.groups()
+    fallback_year = datetime.fromtimestamp(listing_stat.st_mtime).year
+    mtime_ns = int(parse_ls_date(date, fallback_year).timestamp() * 1e9)
+    path = unquote_gnulib(path)
+    record = Record(
+        src_inode=int(src_inode),
+        block_kib=int(block_kib),
+        typ=typ,
+        mode=fileperm_to_mode(perms) | filetype_to_mode[typ],
+        src_user=sys.intern(user),
+        src_group=sys.intern(group),
+        bytes=int(size),
+        mtime_ns=mtime_ns,
+        path=path,
+    )
+    return record
+
+
+def read_record_tabular(line, listing, listing_stat):
+    tabular_matched = tabular_format_re.match(line)
+    if not tabular_matched:
+        return None
+    ts, size, path = tabular_matched.groups()
+    mtime_ns = int(float(ts) * 1e9)
+    typ = "d" if path.endswith("/") else "f"
+    mode = (0o755 if typ == "/" else 0o644) | filetype_to_mode[typ]
+    size = int(size)
+    block_kib = math.ceil(size / 1024)
+    record = Record(
+        mtime_ns=mtime_ns,
+        typ=typ,
+        mode=mode,
+        bytes=size,
+        block_kib=block_kib,
+        path=path,
+    )
+    return record
+
+
+def read_record_plain(line, listing, listing_stat):
+    if line.startswith("#") or line.startswith("//"):
+        # Expected line to ignore
+        return None
+    # if re.match(r"^File number=[-\d]+, block number=[-\d]+, partition=[-\d]+.$", line):
+    if line.startswith("File number="):
+        # Expected line to ignore
+        return None
+
+    # assume the line is a literal path string now
+    typ = "d" if line.endswith("/") else "f"
+    mode = (0o755 if typ == "d" else 0o644) | filetype_to_mode[typ]
+    record = Record(
+        mtime_ns=int(listing_stat.st_mtime * 1e9),
+        bytes=0,
+        path=line,
+        typ=typ,
+        mode=mode,
+    )
+    return record
+
+
+listing_type_parsers = [
+    read_record_jsonl,
+    read_record_tar,
+    read_record_find,
+    read_record_tabular,
+    read_record_plain,
+]
+
+
+def read_records(listing):
+    listing_stat = os.stat(listing)
+    logger.info(f"Opening listing {listing}")
+    with open_maybe_compressed(listing, "rt") as f:
+        for line in f:
+            line = line.removesuffix("\n").removesuffix("\0")
+            for parser in listing_type_parsers:
+                record = parser(line, listing, listing_stat)
+                if record is not None:
+                    yield record
+                    break
 
 
 class Record:  # Basically the same as Meta but with path and no src_listing
