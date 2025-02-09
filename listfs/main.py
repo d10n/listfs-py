@@ -927,10 +927,6 @@ class ListFS(pyfuse3.Operations):
         else:
             prefix_parts = tuple()
 
-        # TODO: store the last 20 directory nodes and their paths to a LRU cache,
-        #  so that if the next node being inserted shares a parent directory,
-        #  it doesn't need to walk the whole tree again.
-
         def insert_node(record):
             if self.loads % 10000 == 0:
                 perf_now = perf_counter()
